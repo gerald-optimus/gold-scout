@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="tl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gold Scout</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+:root{--paper:#edf1f0;--ink:#14323a;--gold:#b98a1e;--line:#c3cfcc}
+@media(prefers-color-scheme:dark){:root{--paper:#16262a;--ink:#e6efee;--line:#35514f}}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{display:flex;flex-direction:column;background:var(--paper);color:var(--ink);font:14px/1.4 "Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+header{display:flex;flex-wrap:wrap;gap:6px;padding:8px;border-bottom:1px solid var(--line)}
+button,input,select{font:inherit;color:inherit;background:var(--paper);border:1px solid var(--line);border-radius:4px;padding:6px 9px}
+button{cursor:pointer}
+button.main{background:var(--gold);border-color:var(--gold);color:#fff;font-weight:600}
+:focus-visible{outline:2px solid var(--gold);outline-offset:1px}
+#q,#note{flex:1;min-width:150px}
+#map{flex:1;min-height:0}
+#info{padding:5px 8px;font-size:13px;border-top:1px solid var(--line)}
+details{padding:6px 8px;border-top:1px solid var(--line);max-height:36vh;overflow:auto}
+.row{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0;align-items:center}
+li{margin:4px 0}
+</style>
+</head>
+<body>
+<header>
+ <input id="q" placeholder="Hanapin ang lugar, hal. Paracale">
+ <button id="go">Hanapin</button>
+ <select id="jmp" aria-label="Kilalang gold districts">
+  <option value="">Mga kilalang gold district</option>
+  <option value="14.29,122.78">Paracale, Camarines Norte</option>
+  <option value="16.37,120.68">Itogon, Benguet</option>
+  <option value="7.79,126.06">Monkayo, Davao de Oro</option>
+ </select>
+ <button id="loc">Lokasyon ko</button>
+ <button id="scan" class="main">I-scan ang view</button>
+ <button id="gm">Buksan sa Google Maps</button>
+</header>
+<div id="map"></div>
+<div id="info">
+ <div id="st">Mag-zoom in (level 12 pataas), tapos pindutin ang I-scan.</div>
+ <div><span style="color:#c0392b">&#9679;</span> lumang mina o quarry &nbsp; <span style="color:#1f7a99">&#9679;</span> confluence ng ilog &nbsp; <span style="color:#d4a017">&#9679;</span> matalim na liko ng ilog</div>
+</div>
+<details open>
+ <summary><b>Field log</b> (<span id="n">0</span> pin)</summary>
+ <div class="row">
+  <select id="typ" aria-label="Uri"><option>Pan</option><option>Soil</option><option>Rock</option><option>Old workings</option><option>Note</option></select>
+  <input id="note" placeholder="Note: kulay, sukat, may nakita?">
+  <label><input type="checkbox" id="pin"> Pin mode (pindutin ang mapa para mag-drop)</label>
+  <button id="csv">Kopyahin ang CSV</button>
+  <button id="clr">Burahin lahat</button>
+ </div>
+ <ol id="log"></ol>
+</details>
+<script>
+const $=id=>document.getElementById(id),say=t=>$('st').textContent=t;
+const esc=s=>String(s).replace(/[&<>"']/g,c=>'&#'+c.charCodeAt(0)+';');
+const hd=(p,q)=>Math.atan2(q.lon-p.lon,q.lat-p.lat)*180/Math.PI;
+const map=L.map('map').setView([12.5,122],6);
+const tile=(u,a,z)=>L.tileLayer(u,{maxZoom:z,attribution:a});
+const base={
+ Satellite:tile('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}','Esri',19),
+ Topo:tile('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png','OpenTopoMap, OSM',17),
+ Street:tile('https://tile.openstreetmap.org/{z}/{x}/{y}.png','OSM',19)};
+base.Satellite.addTo(map);
+const lm=L.layerGroup().addTo(map),lc=L.layerGroup().addTo(map),lb=L.layerGroup().addTo(map),lp=L.layerGroup().addTo(map);
+L.control.layers(base,{'Lumang mina o quarry':lm,'Confluence':lc,'Liko ng ilog':lb,'Mga pin ko':lp}).addTo(map);
+
+async function find(){
+ const q=$('q').value.trim();if(!q)return;
+ say('Hinahanap...');
+ try{
+  const r=await(await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&q='+encodeURIComponent(q))).json();
+  if(!r[0])return say('Walang nahanap. Subukan ang ibang spelling.');
+  map.setView([+r[0].lat,+r[0].lon],13);say(r[0].display_name);
+ }catch(e){say('Hindi gumana ang search. Subukan ulit.')}
+}
+$('go').onclick=find;
+$('q').onkeydown=e=>{if(e.key==='Enter')find()};
+$('jmp').onchange=e=>{if(e.target.value)map.setView(e.target.value.split(',').map(Number),13)};
+$('loc').onclick=()=>navigator.geolocation?navigator.geolocation.getCurrentPosition(p=>map.setView([p.coords.latitude,p.coords.longitude],16),()=>say('Hindi makuha ang GPS. Kailangan ng https (hal. GitHub Pages) at pahintulot.')):say('Walang GPS ang device na ito.');
+$('gm').onclick=()=>{const c=map.getCenter();open('https://www.google.com/maps/@'+c.lat.toFixed(5)+','+c.lng.toFixed(5)+','+Math.max(map.getZoom(),15)+'z/data=!3m1!1e3')};
+
+$('scan').onclick=async()=>{
+ if(map.getZoom()<12)return say('Mag-zoom in muna (level 12 pataas).');
+ const b=map.getBounds(),bb=[b.getSouth(),b.getWest(),b.getNorth(),b.getEast()].map(x=>x.toFixed(5)).join(',');
+ const q='[out:json][timeout:30];(nwr["historic"="mine"]('+bb+');nwr["man_made"~"^(adit|mineshaft)$"]('+bb+');nwr["industrial"="mine"]('+bb+');nwr["landuse"="quarry"]('+bb+');nwr["resource"="gold"]('+bb+'););out center tags;way["waterway"~"^(river|stream)$"]('+bb+');out geom;';
+ say('Nag-i-scan...');
+ let d;
+ try{d=await(await fetch('https://overpass-api.de/api/interpreter',{method:'POST',body:'data='+encodeURIComponent(q)})).json()}
+ catch(e){return say('Busy o error ang Overpass. Subukan ulit pagkalipas ng ilang segundo.')}
+ [lm,lc,lb].forEach(l=>l.clearLayers());
+ const ways=[],cnt={},ends={},pos={};let nm=0,nc=0,nb=0;
+ for(const e of d.elements){
+  if(e.type==='way'&&e.tags&&e.tags.waterway&&e.geometry){
+   ways.push(e);
+   e.nodes.forEach((id,i)=>{
+    const g=e.geometry[i];if(g)pos[id]=[g.lat,g.lon];
+    cnt[id]=(cnt[id]||0)+1;
+    if(i===0||i===e.nodes.length-1)ends[id]=(ends[id]||0)+1;
+   });
+  }else{
+   const p=e.type==='node'?e:e.center;if(!p)continue;
+   const t=e.tags||{},title=t.name||t.historic||t.man_made||t.landuse||'mining feature';
+   nm++;
+   L.circleMarker([p.lat,p.lon],{radius:7,color:'#c0392b',fillOpacity:.6})
+    .bindPopup('<b>'+esc(title)+'</b><br>'+Object.entries(t).map(([k,v])=>esc(k+'='+v)).join('<br>')).addTo(lm);
+  }
+ }
+ for(const id in cnt){
+  if(pos[id]&&(cnt[id]>=3||(cnt[id]===2&&ends[id]===1))){
+   nc++;
+   L.circleMarker(pos[id],{radius:6,color:'#1f7a99',fillOpacity:.7})
+    .bindPopup('Confluence. Subukan ang pan sa downstream side at sa likod ng malalaking bato.').addTo(lc);
+  }
+ }
+ for(const w of ways){
+  const g=w.geometry.filter(Boolean);
+  for(let i=3;i<g.length-3;i+=2){
+   let a=Math.abs(hd(g[i-3],g[i])-hd(g[i],g[i+3]));if(a>180)a=360-a;
+   if(a>100&&nb<200){
+    nb++;
+    L.circleMarker([g[i].lat,g[i].lon],{radius:5,color:'#d4a017',fillOpacity:.8})
+     .bindPopup('Matalim na liko. I-check ang loob ng liko (slip-off bar), doon madalas tumitigil ang mabibigat na buhangin.').addTo(lb);
+    i+=4;
+   }
+  }
+ }
+ say('Nakita: '+nm+' mining feature, '+nc+' confluence, '+nb+' liko ng ilog. Ito ay mga lead lang, hindi patunay na may gold.');
+};
+
+let log=[];
+try{log=JSON.parse(localStorage.getItem('goldscout')||'[]')}catch(e){}
+const save=()=>{try{localStorage.setItem('goldscout',JSON.stringify(log))}catch(e){}};
+function draw(){
+ lp.clearLayers();$('log').innerHTML='';$('n').textContent=log.length;
+ log.forEach(r=>{
+  L.marker([r.lat,r.lng]).bindPopup('<b>'+esc(r.t)+'</b><br>'+esc(r.n)).addTo(lp);
+  const li=document.createElement('li');
+  li.innerHTML='<b>'+esc(r.t)+'</b> '+r.lat.toFixed(5)+', '+r.lng.toFixed(5)+' ('+esc(r.d)+') '+esc(r.n);
+  $('log').append(li);
+ });
+}
+map.on('click',e=>{
+ if(!$('pin').checked)return;
+ log.push({t:$('typ').value,n:$('note').value,lat:e.latlng.lat,lng:e.latlng.lng,d:new Date().toISOString().slice(0,16)});
+ save();draw();$('note').value='';
+});
+$('csv').onclick=async()=>{
+ const t='type,note,lat,lng,date\n'+log.map(r=>[r.t,'"'+r.n.replace(/"/g,'""')+'"',r.lat,r.lng,r.d].join(',')).join('\n');
+ try{await navigator.clipboard.writeText(t);say('Na-copy ang CSV. I-paste sa Sheets o Excel.')}catch(e){prompt('Kopyahin ito:',t)}
+};
+$('clr').onclick=()=>{if(confirm('Burahin ang lahat ng pin?')){log=[];save();draw()}};
+draw();
+</script>
+</body>
+</html>
